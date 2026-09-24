@@ -12,8 +12,9 @@ ERROR: [youtube] …: Sign in to confirm you're not a bot. Use --cookies-from-br
 With the Cookies option left on **Automatic**, the app deals with this for you:
 
 1. It first tries the download without any cookies (or with the browser that worked last time for that site).
-2. If the site says you need to be signed in, it finds **every browser profile** on your computer — Firefox, Chrome,
-   Edge, Brave, Opera, Vivaldi, Chromium, Whale and Safari, including Snap and Flatpak installs on Linux.
+2. If the site says you need to be signed in, it finds **every browser profile** on your computer — Firefox,
+   Zen, LibreWolf, Floorp, Chrome, Edge, Brave, Opera, Vivaldi, Chromium, Whale and Safari, including Snap and
+   Flatpak installs on Linux.
 3. It reads each profile's cookies and checks which ones are actually **signed in** to that site
    (e.g. has YouTube's login cookies), then retries the download with the best candidate, and the next, and so on.
 4. The profile that works is remembered per site, so next time it's used straight away.
@@ -23,6 +24,26 @@ With the Cookies option left on **Automatic**, the app deals with this for you:
 You can also pick a specific browser profile, turn cookies off, or point it to a `cookies.txt` file.
 
 ## Install and run
+
+### Arch Linux
+
+```sh
+git clone https://github.com/knap43/yt-dlp-gui.git
+cd yt-dlp-gui
+./install-arch.sh
+```
+
+This installs `python`, `tk`, `ffmpeg` and `deno` with pacman (only whichever are missing), puts the app and the
+latest yt-dlp in a private environment under `~/.local/share/yt-dlp-gui`, and adds **yt-dlp GUI** to your
+application menu plus a `yt-dlp-gui` command in `~/.local/bin`. Nothing else touches the system.
+
+- Run `./install-arch.sh` again at any time to update the app; `./install-arch.sh --uninstall` removes it.
+- yt-dlp itself updates automatically once a day, after you close the window, because outdated versions are the most
+  common reason downloads stop working.
+- After a big Python update (e.g. 3.13 → 3.14), the launcher notices that its environment broke and rebuilds it by
+  itself on the next start.
+
+### Other systems
 
 You need Python 3.10 or newer (with Tk, which the python.org installers include).
 
@@ -43,7 +64,13 @@ cause of failures that have nothing to do with cookies.
 
 ## Cookie tips
 
-- **Firefox is the most reliable** source of cookies. Sign in to the site there once, and you're set.
+- **Firefox and its forks (Zen, LibreWolf, Floorp) are the most reliable** source of cookies: they aren't encrypted,
+  so no keyring or password prompt is involved. Sign in to the site there once, and you're set.
+- They can also stay **open** while you download. Plain yt-dlp copies only `cookies.sqlite` and misses logins still
+  held in the browser's `cookies.sqlite-wal` journal (it can even fail outright for a new profile); this app copies
+  both and merges them, so a login from a minute ago is seen.
+- Zen installed from **Flathub** keeps its profiles in `~/.var/app/app.zen_browser.zen/.zen`, which is found
+  automatically, as are native installs (`~/.zen`). Logins made inside Zen workspaces/containers are included.
 - **Chrome / Edge on Windows** lock their cookie database while running and use "App-Bound Encryption", which
   yt-dlp often cannot read. Close the browser completely (including the tray icon) and try again, or use Firefox.
 - **Linux**: Chromium-based browsers keep the cookie key in your desktop keyring, which must be unlocked.

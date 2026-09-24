@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import sqlite3
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
@@ -158,11 +162,39 @@ def explain_cookie_load_error(browser: str, message: str, platform: str | None =
     return f'Could not read {name}\'s cookies.'
 
 
+def _snapshot_firefox_profile(profile_dir: str, dest: str) -> str:
+    """Copy a Firefox-family cookie database *including its write-ahead log* and merge the two.
+
+    Firefox (and forks such as Zen) keep recent changes in cookies.sqlite-wal while running.
+    yt-dlp copies only cookies.sqlite, so a login from a few minutes ago can be invisible, or the
+    copy may not even contain the cookie table yet. Folding the log into our copy fixes that.
+    """
+    os.makedirs(dest)
+    for name in ('cookies.sqlite', 'cookies.sqlite-wal', 'containers.json'):
+        source = os.path.join(profile_dir, name)
+        if os.path.isfile(source):
+            shutil.copyfile(source, os.path.join(dest, name))
+    if os.path.isfile(os.path.join(dest, 'cookies.sqlite-wal')):
+        connection = sqlite3.connect(os.path.join(dest, 'cookies.sqlite'))
+        try:
+            connection.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+        finally:
+            connection.close()
+    return dest
+
+
 def load_profile_cookies(profile: BrowserProfile) -> tuple[object, list[str]]:
     """Load a profile's cookies with yt-dlp. Returns (cookie jar, warnings). Raises on failure."""
     from yt_dlp.cookies import extract_cookies_from_browser
 
     logger = _CapturingLogger()
+    if profile.browser == 'firefox' and os.path.isdir(profile.profile_path):
+        with tempfile.TemporaryDirectory(prefix='yt-dlp-gui-') as tmpdir:
+            try:
+                snapshot = _snapshot_firefox_profile(profile.profile_path, os.path.join(tmpdir, 'profile'))
+                return extract_cookies_from_browser('firefox', snapshot, logger), logger.messages
+            except (OSError, sqlite3.Error):
+                logger.messages.clear()  # fall back to letting yt-dlp read the profile itself
     profile_arg = None if profile.browser == 'safari' and not profile.profile_path else profile.profile_path
     jar = extract_cookies_from_browser(profile.browser, profile_arg, logger)
     return jar, logger.messages

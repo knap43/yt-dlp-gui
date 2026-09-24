@@ -38,10 +38,11 @@ class BrowserProfile:
     cookie_db: str        # the cookie database file we found
     profile_name: str     # human-friendly profile name
     last_used: float      # mtime of the cookie database
+    app: str = ''         # display name when it differs from the yt-dlp key, e.g. "Zen" for "firefox"
 
     @property
     def label(self) -> str:
-        name = BROWSER_NAMES.get(self.browser, self.browser.title())
+        name = self.app or BROWSER_NAMES.get(self.browser, self.browser.title())
         return f'{name} — {self.profile_name}' if self.profile_name else name
 
     def to_dict(self) -> dict:
@@ -100,25 +101,59 @@ def _chromium_dirs(platform: str, home: str, env: dict) -> dict[str, list[str]]:
     }
 
 
-def _firefox_dirs(platform: str, home: str, env: dict) -> list[str]:
+def _firefox_family_dirs(platform: str, home: str, env: dict) -> dict[str, list[str]]:
+    """Profile roots of Firefox and its forks, keyed by display name.
+
+    The forks keep Firefox's cookie format, so yt-dlp's Firefox reader handles all of them
+    when given the profile folder directly.
+    """
     if platform in ('win32', 'cygwin'):
         roaming = env.get('APPDATA') or os.path.join(home, 'AppData', 'Roaming')
         local = env.get('LOCALAPPDATA') or os.path.join(home, 'AppData', 'Local')
-        return [
-            os.path.join(roaming, 'Mozilla', 'Firefox', 'Profiles'),
-            os.path.join(local, 'Packages', 'Mozilla.Firefox_n80bbvh6b1yt2', 'LocalCache',
-                         'Roaming', 'Mozilla', 'Firefox', 'Profiles'),
-        ]
+        return {
+            'Firefox': [
+                os.path.join(roaming, 'Mozilla', 'Firefox', 'Profiles'),
+                os.path.join(local, 'Packages', 'Mozilla.Firefox_n80bbvh6b1yt2', 'LocalCache',
+                             'Roaming', 'Mozilla', 'Firefox', 'Profiles'),
+            ],
+            'Zen': [os.path.join(roaming, 'zen', 'Profiles')],
+            'LibreWolf': [os.path.join(roaming, 'librewolf', 'Profiles')],
+            'Floorp': [os.path.join(roaming, 'Floorp', 'Profiles')],
+        }
     if platform == 'darwin':
-        return [os.path.join(home, 'Library', 'Application Support', 'Firefox', 'Profiles')]
+        support = os.path.join(home, 'Library', 'Application Support')
+        return {
+            'Firefox': [os.path.join(support, 'Firefox', 'Profiles')],
+            'Zen': [os.path.join(support, 'zen', 'Profiles')],
+            'LibreWolf': [os.path.join(support, 'librewolf', 'Profiles')],
+            'Floorp': [os.path.join(support, 'Floorp', 'Profiles')],
+        }
     config = env.get('XDG_CONFIG_HOME') or os.path.join(home, '.config')
-    return [
-        os.path.join(config, 'mozilla', 'firefox'),
-        os.path.join(home, '.mozilla', 'firefox'),
-        os.path.join(home, '.var', 'app', 'org.mozilla.firefox', 'config', 'mozilla', 'firefox'),
-        os.path.join(home, '.var', 'app', 'org.mozilla.firefox', '.mozilla', 'firefox'),
-        os.path.join(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox'),
-    ]
+    flatpak = os.path.join(home, '.var', 'app')
+    return {
+        'Firefox': [
+            os.path.join(config, 'mozilla', 'firefox'),
+            os.path.join(home, '.mozilla', 'firefox'),
+            os.path.join(flatpak, 'org.mozilla.firefox', 'config', 'mozilla', 'firefox'),
+            os.path.join(flatpak, 'org.mozilla.firefox', '.mozilla', 'firefox'),
+            os.path.join(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox'),
+        ],
+        'Zen': [
+            os.path.join(home, '.zen'),
+            os.path.join(config, 'zen'),
+            os.path.join(flatpak, 'app.zen_browser.zen', '.zen'),
+            os.path.join(flatpak, 'app.zen_browser.zen', 'config', 'zen'),
+        ],
+        'LibreWolf': [
+            os.path.join(home, '.librewolf'),
+            os.path.join(config, 'librewolf'),
+            os.path.join(flatpak, 'io.gitlab.librewolf-community', '.librewolf'),
+        ],
+        'Floorp': [
+            os.path.join(home, '.floorp'),
+            os.path.join(flatpak, 'one.ablaze.floorp', '.floorp'),
+        ],
+    }
 
 
 def _mtime(path: str) -> float:
@@ -176,7 +211,7 @@ def _firefox_profile_names(root: str) -> dict[str, str]:
     return names
 
 
-def _find_firefox_profiles(root: str) -> list[BrowserProfile]:
+def _find_firefox_profiles(root: str, app: str = 'Firefox') -> list[BrowserProfile]:
     if not os.path.isdir(root):
         return []
     names = _firefox_profile_names(root)
@@ -186,9 +221,10 @@ def _find_firefox_profiles(root: str) -> list[BrowserProfile]:
         for cookie_db in glob.glob(os.path.join(escaped, pattern, 'cookies.sqlite')):
             profile_dir = os.path.dirname(cookie_db)
             dir_name = os.path.basename(profile_dir)
-            # Profile folders look like "x1y2z3.default-release"; the part after the dot is readable.
+            # Folders look like "x1y2z3.default-release" (Zen: "x1y2z3.Default (release)").
             name = names.get(os.path.normcase(dir_name)) or dir_name.partition('.')[2] or dir_name
-            profiles.append(BrowserProfile('firefox', profile_dir, cookie_db, name, _mtime(cookie_db)))
+            profiles.append(BrowserProfile('firefox', profile_dir, cookie_db, name, _mtime(cookie_db),
+                                           app='' if app == 'Firefox' else app))
     return profiles
 
 
@@ -211,8 +247,9 @@ def detect_browser_profiles(platform: str | None = None, home: str | None = None
     env = os.environ if env is None else env
 
     profiles: list[BrowserProfile] = []
-    for root in _firefox_dirs(platform, home, env):
-        profiles.extend(_find_firefox_profiles(root))
+    for app, roots in _firefox_family_dirs(platform, home, env).items():
+        for root in roots:
+            profiles.extend(_find_firefox_profiles(root, app))
     for browser, dirs in _chromium_dirs(platform, home, env).items():
         for browser_dir in dirs:
             profiles.extend(_find_chromium_profiles(browser, browser_dir))

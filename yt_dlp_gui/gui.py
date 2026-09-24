@@ -338,7 +338,7 @@ def main():
         root.withdraw()
         messagebox.showerror('yt-dlp is missing', 'Install it with:\n\n    pip install -U yt-dlp')
         return
-    root = tk.Tk()
+    root = tk.Tk(className='yt-dlp-gui')  # window class "Yt-dlp-gui", matched by the .desktop file
     try:
         ttk.Style(root).theme_use('clam' if sys.platform.startswith('linux') else ttk.Style(root).theme_use())
     except tk.TclError:
