@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-dlp-gui"
+description = "A simple desktop GUI for yt-dlp that finds your browser cookies automatically"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["yt-dlp"]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.gui-scripts]
+yt-dlp-gui = "yt_dlp_gui.gui:main"
+
+[tool.setuptools]
+packages = ["yt_dlp_gui"]
+
+[tool.setuptools.dynamic]
+version = {attr = "yt_dlp_gui.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
